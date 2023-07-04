@@ -27,14 +27,15 @@ static uint64_t esp32_ana_read(void *opaque, hwaddr addr, unsigned int size)
 static void esp32_ana_write(void *opaque, hwaddr addr, uint64_t value,
                                  unsigned int size) {
     Esp32AnaState *s = ESP32_ANA(opaque);
-    if(addr==196) {
-        //printf("wifi channel:%x %x\n",(int)value, (int)~value);
-        int v=value&255;
-        if((v%10)==4) 
+    if  (addr == 196) {
+        int v = value&255;
+        if ((v % 10)==4) {
             esp32_wifi_channel=(v/10)-1;
+            printf("esp32 wifi channel register = %d\n", esp32_wifi_channel);
+        }
     }
     s->mem[addr/4]=value;
-    //printf("esp32_ana_write %x %x\n",(int)addr,(int)value);
+    // printf("analog write to %016lx, value=%016lx\n", addr, value);
 }
 
 static const MemoryRegionOps esp32_ana_ops = {

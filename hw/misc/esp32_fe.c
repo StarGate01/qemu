@@ -12,16 +12,16 @@ static uint64_t esp32_fe_read(void *opaque, hwaddr addr, unsigned int size)
 {
     uint32_t r = 0;
     Esp32FeState *s = ESP32_FE(opaque);
-    r=s->mem[addr/4];
-    if(addr==124)
-        r=0xffffffff;
+    r = s->mem[addr/4];
+    if (addr == 0x7c) {
+        r = 0xffffffff;
+    }
     return r;
 }
 
-static void esp32_fe_write(void *opaque, hwaddr addr, uint64_t value,
-                                 unsigned int size) {
+static void esp32_fe_write(void *opaque, hwaddr addr, uint64_t value, unsigned int size) {
   Esp32FeState *s = ESP32_FE(opaque);
-  s->mem[addr/4]=(uint32_t)value;
+  s->mem[addr/4] = (uint32_t)value;
 }
 
 static const MemoryRegionOps esp32_fe_ops = {
@@ -35,10 +35,9 @@ static void esp32_fe_init(Object *obj)
     Esp32FeState *s = ESP32_FE(obj);
     SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
-    memory_region_init_io(&s->iomem, obj, &esp32_fe_ops, s,
-                          TYPE_ESP32_FE, 0x1000);
+    memory_region_init_io(&s->iomem, obj, &esp32_fe_ops, s, TYPE_ESP32_FE, 0x1000);
     sysbus_init_mmio(sbd, &s->iomem);
-    memset(s->mem,0,sizeof(s->mem));
+    memset(s->mem, 0, sizeof(s->mem));
 }
 
 

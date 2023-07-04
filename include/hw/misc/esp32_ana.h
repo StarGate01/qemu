@@ -2,6 +2,7 @@
 
 #include "hw/hw.h"
 #include "hw/sysbus.h"
+#include "hw/registerfields.h"
 #include "hw/misc/esp32_reg.h"
 
 
@@ -13,5 +14,4 @@ typedef struct Esp32AnaState {
     MemoryRegion iomem;
     uint32_t mem[1024];
 } Esp32AnaState;
-
 

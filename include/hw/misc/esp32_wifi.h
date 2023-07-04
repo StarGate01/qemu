@@ -7,7 +7,7 @@
 #include "sysemu/sysemu.h"
 #include "net/net.h"
 
-#define TYPE_ESP32_WIFI "esp32_wifi"
+#define TYPE_ESP32_WIFI "misc.esp32_wifi"
 #define ESP32_WIFI(obj) OBJECT_CHECK(Esp32WifiState, (obj), TYPE_ESP32_WIFI)
 
 typedef struct dma_list_item {

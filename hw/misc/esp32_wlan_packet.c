@@ -61,11 +61,6 @@ static void add_tag(mac80211_frame *frame, int tag, int len, unsigned char bytes
 
 void Esp32_WLAN_init_ap_frame(Esp32WifiState *s, mac80211_frame *frame) {
     frame->sequence_control.sequence_number = s->inject_sequence_number++;
-    if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED)
-        memcpy(frame->source_address, s->macaddr, 6);
-    else
-        memcpy(frame->source_address, s->ap_macaddr, 6);
-    memcpy(frame->bssid_address, s->ap_macaddr, 6);
 }
 
 static mac80211_frame *new_frame(unsigned type, unsigned subtype) {
@@ -74,7 +69,9 @@ static mac80211_frame *new_frame(unsigned type, unsigned subtype) {
     frame->frame_control.protocol_version = 0;
     frame->frame_control.type = type;
     frame->frame_control.sub_type = subtype;
-    frame->frame_control.flags = 0;
+    frame->frame_control._flags = 0;
+    frame->frame_control.from_ds = 0;
+    frame->frame_control.to_ds = 0;
     frame->duration_id = 314;
     frame->sequence_control.fragment_number = 0;
     frame->pos=0;
@@ -93,7 +90,6 @@ static void add_ssid(mac80211_frame *frame, const char *ssid) {
 mac80211_frame *Esp32_WLAN_create_beacon_frame(access_point_info *ap) {
     mac80211_frame *frame=new_frame(IEEE80211_TYPE_MGT,IEEE80211_TYPE_MGT_SUBTYPE_BEACON);
     frame->signal_strength=ap->sigstrength;
-    memcpy(frame->destination_address,BROADCAST,6);
     frame->beacon_info.timestamp=qemu_clock_get_ns(QEMU_CLOCK_REALTIME)/1000;
     frame->beacon_info.interval=1000;
     frame->beacon_info.capability=1;
@@ -127,14 +123,14 @@ static uint16_t in_cksum(uint16_t *addr, int len) {
 
 static mac80211_frame *Esp32_WLAN_create_dhcp_frame(int cmd_size, uint8_t dhcp_commands[]) {
     mac80211_frame *frame=new_frame(IEEE80211_TYPE_DATA,IEEE80211_TYPE_DATA_SUBTYPE_DATA);
-    frame->frame_control.flags=1;
+    frame->frame_control.to_ds=1;
     add_data(frame,8,(uint8_t[]){ 0xaa, 0xaa ,0x03 ,00 ,00 ,00 ,8 ,00});
     dhcp_request_t req={
         {.version_size=0x45,.ttl=0xff,.protocol=0x11,.dest_ip={0xff,0xff,0xff,0xff}},
         {.src_port_l=0x44,.dest_port_l=0x43},
         {.htype=1,.hlen=6,.xid=0x1d3d00,.chaddr={0x10,0x01,0x00,0xc4,0x0a,0x24},
         .magic_cookie=0x63538263}
-    };    
+    };
     int len=sizeof(req)+cmd_size;
     req.ipheader.len_h=len>>8;
     req.ipheader.len_l=len&0xff;
@@ -158,7 +154,6 @@ mac80211_frame *Esp32_WLAN_create_dhcp_request(uint8_t *ip) {
     };
     return Esp32_WLAN_create_dhcp_frame(sizeof(dhcp_commands),dhcp_commands);
 }
-    
 mac80211_frame *Esp32_WLAN_create_dhcp_discover(void) {
     uint8_t dhcp_commands[]={
         0x35, 1, 1,
@@ -199,8 +194,8 @@ mac80211_frame *Esp32_WLAN_create_probe_response(access_point_info *ap) {
 
 mac80211_frame *Esp32_WLAN_create_probe_request(access_point_info *ap) {
     mac80211_frame *frame=new_frame(IEEE80211_TYPE_MGT,IEEE80211_TYPE_MGT_SUBTYPE_PROBE_REQ);
-    memcpy(frame->destination_address,BROADCAST,6);
-    memcpy(frame->bssid_address,BROADCAST,6);
+    memcpy(frame->receiver_address,BROADCAST,6);
+    memcpy(frame->address_3,BROADCAST,6);
     add_ssid(frame,ap->ssid);
     add_tag(frame,IEEE80211_BEACON_PARAM_CHANNEL,1,(uint8_t[]){ap->channel});
     add_rates(frame);
@@ -278,15 +273,7 @@ mac80211_frame *Esp32_WLAN_create_disassociation(void) {
 mac80211_frame *Esp32_WLAN_create_data_packet(Esp32WifiState *s, const uint8_t *buf, int size) {
     mac80211_frame *frame=new_frame(IEEE80211_TYPE_DATA,IEEE80211_TYPE_DATA_SUBTYPE_DATA);
 
-    frame->frame_control.flags = 0x2; /* from station back to station via AP */
     frame->duration_id = 44;
-    /* send message to wlan-device */
-    if(s->ap_state == Esp32_WLAN__STATE_STA_ASSOCIATED) {
-        memcpy(frame->destination_address, s->ap_macaddr, 6);
-        frame->frame_control.flags = 0x2;
-    }
-    else
-        memcpy(frame->destination_address, s->macaddr, 6);
     /* LLC */
     add_data(frame,6,(uint8_t[]){ 0xaa, 0xaa ,0x03 ,0 ,0 ,0});
     memcpy(frame->data_and_fcs+6, buf+12, size-12);

@@ -32,7 +32,7 @@
 #define esp32_wlan_h 1
 
 
-//#define DEBUG_Esp32_WLAN
+#define DEBUG_Esp32_WLAN
 
 #ifdef DEBUG_Esp32_WLAN
 #define DEBUG_PRINT_AP(x) \
@@ -91,12 +91,14 @@ typedef struct mac80211_frame {
         unsigned    protocol_version    : 2;
         unsigned    type            : 2;
         unsigned    sub_type        : 4;
-        unsigned  flags:8;
+        unsigned    to_ds           : 1;
+        unsigned    from_ds         : 1;
+        unsigned    _flags:6;
     } QEMU_PACKED frame_control;
     uint16_t  duration_id;
-    macaddr_t destination_address;
-    macaddr_t source_address;
-    macaddr_t bssid_address;
+    macaddr_t receiver_address;
+    macaddr_t transmitter_address;
+    macaddr_t address_3;
     struct mac80211_sequence_control {
         unsigned    fragment_number     : 4;
         unsigned    sequence_number     : 12;

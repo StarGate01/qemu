@@ -20,6 +20,7 @@
 #include "hw/i2c/esp32_i2c.h"
 #include "hw/xtensa/xtensa_memory.h"
 #include "hw/misc/unimp.h"
+#include "hw/misc/unimp-default.h"
 #include "hw/irq.h"
 #include "hw/core/split-irq.h"
 #include "hw/i2c/i2c.h"
@@ -193,7 +194,6 @@ static void esp32_soc_reset(DeviceState *dev)
         if (s->wifi_dev) {
             device_cold_reset(s->wifi_dev);
         }
-        device_cold_reset(DEVICE(&s->rgb));
     }
     if (s->requested_reset & ESP32_SOC_RESET_PROCPU) {
         xtensa_select_static_vectors(&s->cpu[0].env, s->rtc_cntl.stat_vector_sel[0]);
@@ -259,11 +259,22 @@ static void esp32_soc_add_periph_device(MemoryRegion *dest, void* dev, hwaddr dp
     g_free(name);
 }
 
-static void esp32_soc_add_unimp_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size)
+static void esp32_soc_add_periph_device_prio(MemoryRegion *dest, void* dev, hwaddr dport_base_addr, int priority)
 {
-    create_unimplemented_device(name, dport_base_addr, size);
+    MemoryRegion *mr = sysbus_mmio_get_region(SYS_BUS_DEVICE(dev), 0);
+    memory_region_add_subregion_overlap(dest, dport_base_addr, mr, priority);
+    MemoryRegion *mr_apb = g_new(MemoryRegion, 1);
+    char *name = g_strdup_printf("mr-apb-0x%08x", (uint32_t) dport_base_addr);
+    memory_region_init_alias(mr_apb, OBJECT(dev), name, mr, 0, memory_region_size(mr));
+    memory_region_add_subregion_overlap(dest, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, mr_apb, priority);
+    g_free(name);
+}
+
+static void esp32_soc_add_unimp_default_device(MemoryRegion *dest, const char* name, hwaddr dport_base_addr, size_t size, uint64_t default_value)
+{
+    create_unimplemented_default_device(name, dport_base_addr, size, default_value);
     char * name_apb = g_strdup_printf("%s-apb", name);
-    create_unimplemented_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size);
+    create_unimplemented_default_device(name_apb, dport_base_addr - DR_REG_DPORT_APB_BASE + APB_REG_BASE, size, default_value);
     g_free(name_apb);
 }
 
@@ -395,6 +406,9 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->sha), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->sha, DR_REG_SHA_BASE);
 
+    qdev_realize(DEVICE(&s->unknown), &s->periph_bus, &error_fatal);
+    esp32_soc_add_periph_device_prio(sys_mem, &s->unknown, 0x3ff00000, -1001);
+
     qdev_realize(DEVICE(&s->aes), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->aes, DR_REG_AES_BASE);
 
@@ -484,6 +498,15 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->rng), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->rng, ESP32_RNG_BASE);
 
+    qdev_realize(DEVICE(&s->ana), &s->periph_bus, &error_fatal);
+    esp32_soc_add_periph_device(sys_mem, &s->ana, DR_REG_ANA_BASE);
+
+    qdev_realize(DEVICE(&s->phya), &s->periph_bus, &error_fatal);
+    esp32_soc_add_periph_device(sys_mem, &s->phya, DR_REG_PHYA_BASE);
+
+    qdev_realize(DEVICE(&s->fe), &s->periph_bus, &error_fatal);
+    esp32_soc_add_periph_device(sys_mem, &s->fe, DR_REG_FE_BASE);
+
     qdev_realize(DEVICE(&s->efuse), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->efuse, DR_REG_EFUSE_BASE);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->efuse), 0,
@@ -513,36 +536,36 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdmmc), 0,
                        qdev_get_gpio_in(intmatrix_dev, ETS_SDIO_HOST_INTR_SOURCE));
 
-    /* Provide internal RAM MemoryRegion to the RGB display */
-    s->rgb.intram = dram;
-    qdev_realize(DEVICE(&s->rgb), &s->periph_bus, &error_abort);
-    esp32_soc_add_periph_device(sys_mem, &s->rgb, DR_REG_FRAMEBUF_BASE);
-    memory_region_add_subregion_overlap(sys_mem, esp32_memmap[ESP32_MEMREGION_FRAMEBUF].base, &s->rgb.vram, 0);
+    // not mentioned in fork 
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.pcnt", DR_REG_PCNT_BASE, 0x1000, 0);
 
-    esp32_soc_add_unimp_device(sys_mem, "esp32.analog", DR_REG_ANA_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rtcio", DR_REG_SENS_BASE, 0x400);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.iomux", DR_REG_IO_MUX_BASE, 0x2000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.slc", DR_REG_SLC_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.slchost", DR_REG_SLCHOST_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.apbctrl", DR_REG_APB_CTRL_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s0", DR_REG_I2S_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.i2s1", DR_REG_I2S1_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.rmt", DR_REG_RMT_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.pcnt", DR_REG_PCNT_BASE, 0x1000);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.chipv7_phy", DR_REG_PHY_BASE, 0x1000,-1);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.chipv7_phyb", DR_REG_WDEV_BASE, 0x1000,0);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi", DR_REG_NRX_BASE  , 0x1000,-1);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.unknown_wifi1", DR_REG_BB_BASE , 0x1000,-1);
-    esp32_soc_add_unimp_device(sys_mem, "esp32.bt", DR_REG_BT_BASE, 0x1000, 0);
+    // implemented in fork, still unimplemented here
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.rtcio", DR_REG_SENS_BASE, 0x400, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.rmt", DR_REG_RMT_BASE, 0x1000, 0);
+
+    // common
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.rtcio", DR_REG_RTCIO_BASE, 0x400, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.iomux", DR_REG_IO_MUX_BASE, 0x2000, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.hinf", DR_REG_HINF_BASE, 0x100, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.slc", DR_REG_SLC_BASE, 0x1000, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.slchost", DR_REG_SLCHOST_BASE, 0x1000, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.apbctrl", DR_REG_APB_CTRL_BASE, 0x1000, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.i2s0", DR_REG_I2S_BASE, 0x1000, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.i2s1", DR_REG_I2S1_BASE, 0x1000, 0);
+
+    // only implemented in fork
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.fe2", DR_REG_FE2_BASE, 0x1000, -1);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.chipv7_phy", DR_REG_PHY_BASE, 0x1000, -1);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.chipv7_phyb", DR_REG_WDEV_BASE, 0x1000, 0);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.unknown_wifi", DR_REG_NRX_BASE  , 0x1000, -1);
+    esp32_soc_add_unimp_default_device(sys_mem, "esp32.unknown_wifi1", DR_REG_BB_BASE , 0x1000, -1);
 
     /* Emulation of a fake register used to mark that the chip is run via QEMU */
     MemoryRegion *apbctrl_mem = g_new(MemoryRegion, 1);
     memory_region_init_ram(apbctrl_mem, NULL, "esp32.apbctrl_date_reg", 8 /* bytes */, &error_fatal);
 
     /* This register is not used in the real hardware (hardwired to 0), but is still accesible, reading
-     * it won't trigger an exception, so we can override it */
+        * it won't trigger an exception, so we can override it */
     const hwaddr apb_ctrl_emu_reg = DR_REG_APB_CTRL_BASE + 0x78;
     /* Store "QEMU" as a 32-bit value */
     const uint32_t apb_ctrl_emu_val = 0x51454d55;
@@ -637,6 +660,24 @@ static void esp32_soc_init(Object *obj)
     object_initialize_child(obj, "rng", &s->rng, TYPE_ESP32_RNG);
 
     object_initialize_child(obj, "sha", &s->sha, TYPE_ESP32_SHA);
+
+    object_initialize_child(obj, "unknown", &s->unknown, TYPE_ESP32_UNKNOWN);
+
+    object_initialize_child(obj, "ana", &s->ana, TYPE_ESP32_ANA);
+
+    printf("nb_nics=%d\n", nb_nics);
+    for(int i=0;i<nb_nics;i++) {
+        printf("now checking nb_nic %d\n", i);
+        if (nd_table[i].used && nd_table[i].model) {
+            printf("model=%s\n", nd_table[i].model);
+        }
+        if (nd_table[i].used && nd_table[i].model && strcmp(nd_table[i].model, TYPE_ESP32_WIFI) == 0) {
+            object_initialize_child(obj, "wifi", &s->wifi, TYPE_ESP32_WIFI);
+        }
+    }
+    object_initialize_child(obj, "fe", &s->fe, TYPE_ESP32_FE);
+
+    object_initialize_child(obj, "phya", &s->phya, TYPE_ESP32_PHYA);
 
     object_initialize_child(obj, "aes", &s->aes, TYPE_ESP32_AES);
 
@@ -773,30 +814,32 @@ static void esp32_machine_init_openeth(Esp32SocState *ss)
 {
     SysBusDevice *sbd;
     MemoryRegion* sys_mem = get_system_memory();
-    
-	const char* type_openeth = "open_eth";
-	NICInfo *nd = qemu_find_nic_info(type_openeth, false, NULL);
-	if(nd!=NULL) {
-        hwaddr reg_base = DR_REG_EMAC_BASE;
-        hwaddr desc_base = reg_base + 0x400;
-        qemu_irq irq = qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE);
-		DeviceState* open_eth_dev = qdev_new(type_openeth);
-        ss->eth = open_eth_dev;
-        qdev_set_nic_properties(open_eth_dev, nd);
-        sbd = SYS_BUS_DEVICE(open_eth_dev);
-        sysbus_realize_and_unref(sbd, &error_fatal);
-        sysbus_connect_irq(sbd, 0, irq);
-        memory_region_add_subregion(sys_mem, reg_base, sysbus_mmio_get_region(sbd, 0));
-        memory_region_add_subregion(sys_mem, desc_base, sysbus_mmio_get_region(sbd, 1));
-	}
-	nd = qemu_find_nic_info(TYPE_ESP32_WIFI, false, NULL);
-	if(nd!=NULL) {
-        qdev_set_nic_properties(DEVICE(&ss->wifi), nd);
-        sbd = SYS_BUS_DEVICE(DEVICE(&ss->wifi));
-        sysbus_realize_and_unref(sbd, &error_fatal);
-        esp32_soc_add_periph_device(sys_mem, &ss->wifi, DR_REG_WIFI_BASE);
-        sysbus_connect_irq(SYS_BUS_DEVICE(&ss->wifi), 0,
-                   qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_WIFI_MAC_INTR_SOURCE));
+    hwaddr reg_base = DR_REG_EMAC_BASE;
+    hwaddr desc_base = reg_base + 0x400;
+    qemu_irq irq = qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_ETH_MAC_INTR_SOURCE);
+
+    const char* type_openeth = "open_eth";
+    for(int i=0;i < nb_nics; i++) {
+        NICInfo *nd = &nd_table[i];
+
+        if (nd->used && nd->model && strcmp(nd->model, type_openeth) == 0) {
+            DeviceState* open_eth_dev = qdev_new(type_openeth);
+            ss->eth = open_eth_dev;
+            qdev_set_nic_properties(open_eth_dev, nd);
+            sbd = SYS_BUS_DEVICE(open_eth_dev);
+            sysbus_realize_and_unref(sbd, &error_fatal);
+            sysbus_connect_irq(sbd, 0, irq);
+            memory_region_add_subregion(sys_mem, reg_base, sysbus_mmio_get_region(sbd, 0));
+            memory_region_add_subregion(sys_mem, desc_base, sysbus_mmio_get_region(sbd, 1));
+        }
+        else if (nd->used && nd->model && strcmp(nd->model, TYPE_ESP32_WIFI) == 0) {
+                qdev_set_nic_properties(DEVICE(&ss->wifi), nd);
+                sbd = SYS_BUS_DEVICE(DEVICE(&ss->wifi));
+                sysbus_realize_and_unref(sbd, &error_fatal);
+                esp32_soc_add_periph_device(sys_mem, &ss->wifi, DR_REG_WIFI_BASE);
+                sysbus_connect_irq(SYS_BUS_DEVICE(&ss->wifi), 0,
+                            qdev_get_gpio_in(DEVICE(&ss->intmatrix), ETS_WIFI_MAC_INTR_SOURCE));
+        }
     }
 }
 
