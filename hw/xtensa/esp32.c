@@ -406,9 +406,6 @@ static void esp32_soc_realize(DeviceState *dev, Error **errp)
     qdev_realize(DEVICE(&s->sha), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->sha, DR_REG_SHA_BASE);
 
-    qdev_realize(DEVICE(&s->unknown), &s->periph_bus, &error_fatal);
-    esp32_soc_add_periph_device_prio(sys_mem, &s->unknown, 0x3ff00000, -1001);
-
     qdev_realize(DEVICE(&s->aes), &s->periph_bus, &error_fatal);
     esp32_soc_add_periph_device(sys_mem, &s->aes, DR_REG_AES_BASE);
 
@@ -660,24 +657,6 @@ static void esp32_soc_init(Object *obj)
     object_initialize_child(obj, "rng", &s->rng, TYPE_ESP32_RNG);
 
     object_initialize_child(obj, "sha", &s->sha, TYPE_ESP32_SHA);
-
-    object_initialize_child(obj, "unknown", &s->unknown, TYPE_ESP32_UNKNOWN);
-
-    object_initialize_child(obj, "ana", &s->ana, TYPE_ESP32_ANA);
-
-    printf("nb_nics=%d\n", nb_nics);
-    for(int i=0;i<nb_nics;i++) {
-        printf("now checking nb_nic %d\n", i);
-        if (nd_table[i].used && nd_table[i].model) {
-            printf("model=%s\n", nd_table[i].model);
-        }
-        if (nd_table[i].used && nd_table[i].model && strcmp(nd_table[i].model, TYPE_ESP32_WIFI) == 0) {
-            object_initialize_child(obj, "wifi", &s->wifi, TYPE_ESP32_WIFI);
-        }
-    }
-    object_initialize_child(obj, "fe", &s->fe, TYPE_ESP32_FE);
-
-    object_initialize_child(obj, "phya", &s->phya, TYPE_ESP32_PHYA);
 
     object_initialize_child(obj, "aes", &s->aes, TYPE_ESP32_AES);
 
