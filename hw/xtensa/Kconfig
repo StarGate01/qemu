@@ -32,6 +32,8 @@ config XTENSA_ESP32
     select TMP105
     select LED
     select ESP_RGB
+    select SPLIT_IRQ
+
 
 config XTENSA_ESP32S3
     bool
